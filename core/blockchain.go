@@ -3,43 +3,52 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 )
 
 type Block struct {
-	Index     int
-	Timestamp string
-	Data      string
-	PrevHash  string
-	Hash      string
-	Validator string
+	Index       int
+	Timestamp   string
+	Transaction []LicenseTransaction
+	PrevHash    string
+	Hash        string
+	Validator   string
+}
+
+type LicenseTransaction struct {
+	Owner     string
+	AssetHash string
+	License   string
+	Signature string
 }
 
 func calculateHash(block Block) string {
-	record := fmt.Sprintf("%d%s%s%s%s", block.Index, block.Timestamp, block.Data, block.PrevHash, block.Validator)
+	txData, _ := json.Marshal(block.Transaction)
+	record := fmt.Sprintf("%d%s%s%s%s", block.Index, block.Timestamp, txData, block.PrevHash, block.Validator)
 	hash := sha256.Sum256([]byte(record))
 	return hex.EncodeToString(hash[:])
 }
 
 func CreateGenesisBlock() *Block {
 	genesisBlock := &Block{
-		Index:     0,
-		Timestamp: time.Now().String(),
-		Data:      "Genesis Block",
-		PrevHash:  "",
+		Index:       0,
+		Timestamp:   time.Now().String(),
+		Transaction: []LicenseTransaction{},
+		PrevHash:    "",
 	}
 
 	genesisBlock.Hash = calculateHash(*genesisBlock)
 	return genesisBlock
 }
 
-func CreateBlock(prevBlock Block, data string) *Block {
+func CreateBlock(prevBlock Block, transactions []LicenseTransaction) *Block {
 	newBlock := &Block{
-		Index:     prevBlock.Index + 1,
-		Timestamp: time.Now().String(),
-		Data:      data,
-		PrevHash:  prevBlock.Hash,
+		Index:       prevBlock.Index + 1,
+		Timestamp:   time.Now().String(),
+		Transaction: transactions,
+		PrevHash:    prevBlock.Hash,
 	}
 
 	newBlock.Hash = calculateHash(*newBlock)
