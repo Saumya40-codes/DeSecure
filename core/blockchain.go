@@ -17,11 +17,12 @@ type Block struct {
 	Validator   string
 }
 
-type LicenseTransaction struct {
-	Owner     string
-	AssetHash string
-	License   string
-	Signature string
+type Blockchain struct {
+	Blocks []*Block
+}
+
+func NewBlockchain() *Blockchain {
+	return &Blockchain{}
 }
 
 func calculateHash(block Block) string {

@@ -8,18 +8,26 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"sync"
 )
 
-// as wiki states
-/*
-*  ECDSA, or Elliptic Curve Digital Signature Algorithm, is a cryptographic algorithm used to create digital signatures,
-*  ensuring the authenticity and integrity of data, and is based on elliptic curve cryptography (ECC).
- */
+type LicenseTransaction struct {
+	Owner     string // Public key of the owner
+	AssetHash string // Unique identifier for the asset
+	License   string // License type (e.g., view, download)
+	Signature string // Digital signature for authenticity
+	Metadata  string // JSON Metadata (Title, Description, Category)
+}
+
+var licenseRegistry = struct {
+	sync.Mutex
+	licenses map[string]string // AssetHash -> Owner
+}{licenses: make(map[string]string)}
 
 func GenerateKeyPair() (*ecdsa.PrivateKey, string) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		fmt.Println("Error generating key pair: ", err)
+		fmt.Println("Error generating key pair:", err)
 		return nil, ""
 	}
 
@@ -55,4 +63,31 @@ func VerifyTransaction(transaction LicenseTransaction) bool {
 	r, s := new(big.Int).SetBytes(signBytes[:32]), new(big.Int).SetBytes(signBytes[32:])
 
 	return ecdsa.Verify(&pubKey, hash[:], r, s)
+}
+
+func RegisterLicense(transaction LicenseTransaction) bool {
+	if !VerifyTransaction(transaction) {
+		fmt.Println("Invalid license transaction")
+		return false
+	}
+
+	licenseRegistry.Lock()
+	defer licenseRegistry.Unlock()
+
+	if _, exists := licenseRegistry.licenses[transaction.AssetHash]; exists {
+		fmt.Println("License already exists for asset:", transaction.AssetHash)
+		return false
+	}
+
+	licenseRegistry.licenses[transaction.AssetHash] = transaction.Owner
+	fmt.Println("License registered:", transaction.AssetHash, "Owner:", transaction.Owner)
+	return true
+}
+
+func HasValidLicense(user string, assetHash string) bool {
+	licenseRegistry.Lock()
+	defer licenseRegistry.Unlock()
+
+	owner, exists := licenseRegistry.licenses[assetHash]
+	return exists && owner == user
 }
