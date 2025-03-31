@@ -8,6 +8,9 @@ var (
 	validatorMutex = sync.Mutex{}
 )
 
+type Validator struct {
+}
+
 func GetNextValidator() string {
 	validatorMutex.Lock()
 	defer validatorMutex.Unlock()

@@ -9,21 +9,30 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"time"
 )
 
+// LicenseTransaction struct with additional fields
 type LicenseTransaction struct {
-	Owner     string // Public key of the owner
-	AssetHash string // Unique identifier for the asset
-	License   string // License type (e.g., view, download)
-	Signature string // Digital signature for authenticity
-	Metadata  string // JSON Metadata (Title, Description, Category)
+	TxID        string // Unique transaction ID
+	Owner       string // Public key of the owner
+	AssetHash   string // Unique identifier for the asset
+	License     string // License type (e.g., view, download)
+	Signature   string // Digital signature for authenticity
+	Metadata    string // JSON Metadata (Title, Description, Category)
+	Timestamp   int64  // Unix timestamp of the transaction
+	Expiry      int64  // Unix timestamp for expiration (optional, 0 if no expiry)
+	Licensee    string // Public key of the license recipient (if applicable)
+	IsValidated bool   // Whether the transaction has been validated
 }
 
+// Global License Registry
 var licenseRegistry = struct {
 	sync.Mutex
-	licenses map[string]string // AssetHash -> Owner
-}{licenses: make(map[string]string)}
+	licenses map[string]LicenseTransaction // AssetHash -> LicenseTransaction
+}{licenses: make(map[string]LicenseTransaction)}
 
+// Generate a new key pai
 func GenerateKeyPair() (*ecdsa.PrivateKey, string) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -37,8 +46,16 @@ func GenerateKeyPair() (*ecdsa.PrivateKey, string) {
 	return privKey, pubKeyHex
 }
 
-func SignTransaction(privKey *ecdsa.PrivateKey, transaction LicenseTransaction) string {
-	data := transaction.Owner + transaction.AssetHash + transaction.License
+// Generate a unique transaction ID
+func GenerateTransactionID(transaction LicenseTransaction) string {
+	data := transaction.Owner + transaction.AssetHash + transaction.License + fmt.Sprintf("%d", transaction.Timestamp)
+	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:])
+}
+
+// Sign the license transaction
+func SignTransaction(privKey *ecdsa.PrivateKey, transaction *LicenseTransaction) string {
+	data := transaction.Owner + transaction.AssetHash + transaction.License + transaction.TxID + fmt.Sprintf("%d", transaction.Timestamp)
 	hash := sha256.Sum256([]byte(data))
 
 	r, s, err := ecdsa.Sign(rand.Reader, privKey, hash[:])
@@ -51,12 +68,13 @@ func SignTransaction(privKey *ecdsa.PrivateKey, transaction LicenseTransaction) 
 	return hex.EncodeToString(signature)
 }
 
+// Verify the transaction signature
 func VerifyTransaction(transaction LicenseTransaction) bool {
 	pubKeyBytes, _ := hex.DecodeString(transaction.Owner)
 	x, y := new(big.Int).SetBytes(pubKeyBytes[:32]), new(big.Int).SetBytes(pubKeyBytes[32:])
 	pubKey := ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
 
-	data := transaction.Owner + transaction.AssetHash + transaction.License
+	data := transaction.Owner + transaction.AssetHash + transaction.License + transaction.TxID + fmt.Sprintf("%d", transaction.Timestamp)
 	hash := sha256.Sum256([]byte(data))
 
 	signBytes, _ := hex.DecodeString(transaction.Signature)
@@ -65,6 +83,7 @@ func VerifyTransaction(transaction LicenseTransaction) bool {
 	return ecdsa.Verify(&pubKey, hash[:], r, s)
 }
 
+// Register a new license
 func RegisterLicense(transaction LicenseTransaction) bool {
 	if !VerifyTransaction(transaction) {
 		fmt.Println("Invalid license transaction")
@@ -79,15 +98,31 @@ func RegisterLicense(transaction LicenseTransaction) bool {
 		return false
 	}
 
-	licenseRegistry.licenses[transaction.AssetHash] = transaction.Owner
+	licenseRegistry.licenses[transaction.AssetHash] = transaction
 	fmt.Println("License registered:", transaction.AssetHash, "Owner:", transaction.Owner)
 	return true
 }
 
+// Check if a user has a valid, unexpired license
 func HasValidLicense(user string, assetHash string) bool {
 	licenseRegistry.Lock()
 	defer licenseRegistry.Unlock()
 
-	owner, exists := licenseRegistry.licenses[assetHash]
-	return exists && owner == user
+	license, exists := licenseRegistry.licenses[assetHash]
+	if !exists {
+		return false
+	}
+
+	// Check if the user is the owner or the designated licensee
+	if license.Owner != user && (license.Licensee != "" && license.Licensee != user) {
+		return false
+	}
+
+	// Check if the license is expired
+	if license.Expiry > 0 && time.Now().Unix() > license.Expiry {
+		fmt.Println("License expired for asset:", assetHash)
+		return false
+	}
+
+	return true
 }
