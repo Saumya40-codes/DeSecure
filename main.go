@@ -81,6 +81,8 @@ func main() {
 
 			validatorBlockchain := core.NewBlockchain(db)
 
+			mempool := core.NewMempool()
+
 			validator := core.NewValidator(id, node, pubKey, privKey, mempool)
 			validator.StartConsensus(validatorBlockchain)
 		}(i)
