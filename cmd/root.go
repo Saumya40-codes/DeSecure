@@ -13,19 +13,6 @@ var rootCmd = &cobra.Command{
 	Long:  `A command-line tool for managing decentralized digital rights, including file uploads and access verification.`,
 }
 
-var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all available DRM-protected files",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Listing all DRM-protected files...")
-		// Call function to list files
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(listCmd)
-}
-
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
