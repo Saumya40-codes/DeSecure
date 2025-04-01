@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -18,6 +19,13 @@ type Node struct {
 	PubSub *pubsub.PubSub
 	Topic  *pubsub.Topic
 	Sub    *pubsub.Subscription
+}
+
+func (n *Node) BroadcastTransaction(tx LicenseTransaction) {
+	txData, _ := json.Marshal(tx)
+	if err := n.Topic.Publish(context.Background(), txData); err != nil {
+		log.Println("Error broadcasting transaction:", err)
+	}
 }
 
 type DiscoveryNotifee struct{}

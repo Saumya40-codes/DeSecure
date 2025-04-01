@@ -1,25 +1,44 @@
 package main
 
 import (
-	"github.com/Saumya40-codes/Hopefully_a_blockchain_project/cmd"
+	"context"
+	"log"
+	"sync"
+
 	"github.com/Saumya40-codes/Hopefully_a_blockchain_project/core"
 	storage "github.com/Saumya40-codes/Hopefully_a_blockchain_project/pkg"
 )
 
-var (
-	blockchain *core.Blockchain
-	db         *storage.DB
-)
-
-func init() {
-	db = storage.OpenDB("./data")
-	defer db.CloseDB()
-
-	// TODO: Load blockchain state from DB
-	blockchain = core.NewBlockchain()
-}
+const TopicName = "drm-consensus"
 
 func main() {
-	cmd.Execute()
-	select {}
+	ctx := context.Background()
+
+	node, err := core.NewNode(ctx, TopicName)
+	if err != nil {
+		log.Fatal("Failed to create node:", err)
+	}
+	db := storage.OpenDB("./data")
+	defer db.CloseDB()
+
+	blockchain := core.NewBlockchain()
+	if len(blockchain.Blocks) == 0 {
+		genesis := core.CreateGenesisBlock()
+		blockchain.Blocks = append(blockchain.Blocks, genesis)
+	}
+
+	var wg sync.WaitGroup
+	numValidators := 4 // Number of validator nodes
+	for i := 0; i < numValidators; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			validator := core.NewValidator(id, node)
+			validator.StartConsensus(blockchain)
+		}(i)
+	}
+
+	go core.ListenForTransactions(node, blockchain, db)
+
+	wg.Wait()
 }
