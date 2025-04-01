@@ -3,11 +3,13 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
 	storage "github.com/Saumya40-codes/Hopefully_a_blockchain_project/pkg"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
 
 type Validator struct {
@@ -17,15 +19,32 @@ type Validator struct {
 	mu         sync.Mutex
 	PublicKey  string      // The validator's public key
 	PrivateKey interface{} // The validator's private key
+	Mempool    *Mempool    // Add this field
 }
 
-func NewValidator(id int, node *Node, publicKey string, privateKey interface{}) *Validator {
+var (
+	topicJoin     *pubsub.Topic
+	topicJoinOnce sync.Once
+)
+
+// Find a transaction by ID from the mempool
+func (v *Validator) findTransactionByID(txID string) *LicenseTransaction {
+	if v.Mempool == nil {
+		log.Printf("Validator %d: Mempool is not initialized", v.ID)
+		return nil
+	}
+
+	return v.Mempool.GetTransactionByID(txID)
+}
+
+func NewValidator(id int, node *Node, publicKey string, privateKey interface{}, mempool *Mempool) *Validator {
 	return &Validator{
 		ID:         id,
 		Node:       node,
 		VotePool:   make(map[string]int),
 		PublicKey:  publicKey,
 		PrivateKey: privateKey,
+		Mempool:    mempool,
 	}
 }
 
@@ -41,10 +60,27 @@ func (v *Validator) StartConsensus(blockchain *Blockchain) {
 
 func (v *Validator) handleTransactions(blockchain *Blockchain) {
 	ctx := context.Background()
-	txSub, err := v.Node.PubSub.Subscribe("transactions")
+
+	topicJoinOnce.Do(func() {
+		var err error
+		topicJoin, err = v.Node.PubSub.Join("transactions")
+		if err != nil {
+			log.Printf("Validator %d failed to join transactions topic: %v", v.ID, err)
+			return
+		}
+	})
+
+	if topicJoin == nil {
+		log.Printf("Validator %d: Topic join failed earlier", v.ID)
+		return
+	}
+
+	txSub, err := topicJoin.Subscribe()
 	if err != nil {
 		log.Printf("Validator %d failed to subscribe to transactions: %v", v.ID, err)
 		return
+	} else {
+		log.Println("Topic subscribed")
 	}
 
 	for {
@@ -54,7 +90,6 @@ func (v *Validator) handleTransactions(blockchain *Blockchain) {
 			continue
 		}
 
-		// Skip messages from self
 		if msg.ReceivedFrom == v.Node.Host.ID() {
 			continue
 		}
@@ -65,19 +100,19 @@ func (v *Validator) handleTransactions(blockchain *Blockchain) {
 			continue
 		}
 
+		v.Mempool.AddTransaction(transaction)
+
 		log.Printf("Validator %d received transaction %s", v.ID, transaction.TxID)
 
-		// Validate the transaction
 		if ValidateTransaction(transaction) {
 			log.Printf("Validator %d approved transaction %s", v.ID, transaction.TxID)
 
-			// Create and broadcast vote
 			vote := VoteMessage{
 				TxID:        transaction.TxID,
 				ValidatorID: v.ID,
 				Timestamp:   time.Now().Unix(),
 				Approved:    true,
-				Signature:   "", // Should actually sign the vote
+				Signature:   "",
 			}
 
 			v.broadcastVote(vote)
@@ -138,7 +173,50 @@ func (v *Validator) handleVotes(blockchain *Blockchain) {
 		// Process the vote through the blockchain
 		blockchain.mu.Lock()
 		blockchain.VoteCount[vote.TxID]++
+		voteCount := blockchain.VoteCount[vote.TxID]
 		blockchain.mu.Unlock()
+
+		// Check if we have enough votes for consensus
+		if voteCount >= 4 { // At least 4/5 validators approve
+			// Find transaction in mempool
+			tx := v.findTransactionByID(vote.TxID)
+			if tx != nil {
+				log.Printf("Validator %d: Consensus reached for transaction %s, adding to blockchain",
+					v.ID, vote.TxID)
+				blockchain.AddTransaction(*tx)
+
+				// Remove transaction from mempool after adding to blockchain
+				v.Mempool.RemoveTransaction(vote.TxID)
+
+				// Broadcast updated blockchain state
+				v.broadcastBlockchainUpdate(blockchain.Blocks[len(blockchain.Blocks)-1])
+			} else {
+				log.Printf("Validator %d: Transaction %s not found in mempool", v.ID, vote.TxID)
+			}
+		}
+	}
+}
+
+// Broadcast blockchain update to all nodes
+func (v *Validator) broadcastBlockchainUpdate(block *Block) {
+	fmt.Println("Broadcast called")
+	// Create a message that indicates this is a block update
+	updateMsg := map[string]interface{}{
+		"type":  "block_update",
+		"block": block,
+	}
+
+	msgData, err := json.Marshal(updateMsg)
+	if err != nil {
+		log.Printf("Validator %d error creating block update message: %v", v.ID, err)
+		return
+	}
+
+	ctx := context.Background()
+	if err := v.Node.Topic.Publish(ctx, msgData); err != nil {
+		log.Printf("Validator %d error broadcasting block update: %v", v.ID, err)
+	} else {
+		log.Printf("Validator %d broadcast block update: %s", v.ID, block.Hash)
 	}
 }
 
@@ -152,9 +230,8 @@ func ValidateTransaction(tx LicenseTransaction) bool {
 	return VerifyTransaction(tx)
 }
 
-func ListenForTransactions(node *Node, blockchain *Blockchain, db *storage.DB) {
+func ListenForTransactions(node *Node, blockchain *Blockchain, db *storage.DB, mempool *Mempool) {
 	ctx := context.Background()
-	mempool := NewMempool()
 
 	for {
 		msg, err := node.Sub.Next(ctx)
@@ -163,7 +240,48 @@ func ListenForTransactions(node *Node, blockchain *Blockchain, db *storage.DB) {
 			continue
 		}
 
-		// First try to parse as transaction
+		// Try to determine if this is a block update
+		var msgType struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(msg.Data, &msgType); err == nil && msgType.Type == "block_update" {
+			// Handle block update
+			var updateMsg struct {
+				Type  string `json:"type"`
+				Block Block  `json:"block"`
+			}
+			if err := json.Unmarshal(msg.Data, &updateMsg); err == nil {
+				log.Println("Received block update:", updateMsg.Block.Hash)
+
+				// Check if we already have this block
+				hasBlock := false
+				blockchain.mu.Lock()
+				for _, b := range blockchain.Blocks {
+					if b.Hash == updateMsg.Block.Hash {
+						hasBlock = true
+						break
+					}
+				}
+
+				if !hasBlock {
+					// Add the block to our blockchain
+					blockCopy := updateMsg.Block // Make a copy to avoid issues with the pointer
+					blockchain.Blocks = append(blockchain.Blocks, &blockCopy)
+					blockchain.persistBlock(&blockCopy)
+
+					log.Println("Added new block from network:", blockCopy.Hash)
+
+					// Clean up mempool
+					for _, tx := range blockCopy.Transaction {
+						mempool.RemoveTransaction(tx.TxID)
+					}
+				}
+				blockchain.mu.Unlock()
+			}
+			continue
+		}
+
+		// Try to parse as transaction
 		var tx LicenseTransaction
 		if err := json.Unmarshal(msg.Data, &tx); err == nil {
 			log.Println("New transaction received:", tx.TxID)
@@ -171,21 +289,29 @@ func ListenForTransactions(node *Node, blockchain *Blockchain, db *storage.DB) {
 			// Add to mempool
 			mempool.AddTransaction(tx)
 
-			// Broadcast to blockchain network
-			node.BroadcastTransaction(tx)
+			continue
+		}
+
+		// Try to parse as vote
+		var vote VoteMessage
+		if err := json.Unmarshal(msg.Data, &vote); err == nil {
+			log.Printf("Vote received for transaction: %s", vote.TxID)
+
+			blockchain.mu.Lock()
+			blockchain.VoteCount[vote.TxID]++
+			blockchain.mu.Unlock()
 
 			continue
 		}
 
-		// If not a transaction, try to parse as vote
-		var vote map[string]string
-		if err := json.Unmarshal(msg.Data, &vote); err == nil {
-			txID, ok := vote["txID"]
+		// Try old vote format
+		var oldVote map[string]string
+		if err := json.Unmarshal(msg.Data, &oldVote); err == nil {
+			txID, ok := oldVote["txID"]
 			if ok {
-				log.Println("Vote received for transaction:", txID)
+				log.Println("Vote received for transaction (old format):", txID)
 				blockchain.ProcessVote(msg.Data)
 			}
 		}
 	}
 }
-

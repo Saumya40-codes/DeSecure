@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/Saumya40-codes/Hopefully_a_blockchain_project/cmd"
@@ -13,8 +14,9 @@ import (
 )
 
 const (
-	TopicName   = "drm-consensus"
-	DataDirPath = "./data"
+	TopicName            = "drm-consensus"
+	DataDirPath          = "./data"
+	ValidatorDataDirPath = "./validator"
 )
 
 func main() {
@@ -53,22 +55,36 @@ func main() {
 	blockchain := core.NewBlockchain(db)
 	log.Printf("Blockchain initialized with %d blocks", len(blockchain.Blocks))
 
+	// Create a shared mempool
+	log.Println("Initializing mempool...")
+	mempool := core.NewMempool()
+
 	log.Println("Starting transaction listener...")
-	go core.ListenForTransactions(node, blockchain, db)
+	go core.ListenForTransactions(node, blockchain, db, mempool)
 
 	numValidators := 5
 
 	log.Printf("Starting %d validators...", numValidators)
-	for i := 0; i < numValidators; i++ {
+	for i := range numValidators {
 		go func(id int) {
 			privKey, pubKey := core.GenerateKeyPair()
 			log.Printf("Validator %d initialized with public key: %s", id, pubKey[:16]+"...")
 
-			validator := core.NewValidator(id, node, pubKey, privKey)
-			validator.StartConsensus(blockchain)
+			validatorDBPath := ValidatorDataDirPath + "/validator_" + strconv.Itoa(id)
+			os.MkdirAll(validatorDBPath, 0o700)
+			db := storage.OpenDB(validatorDBPath)
+
+			node, err := core.NewNode(ctx, TopicName)
+			if err != nil {
+				log.Fatal("Failed to create node:", err)
+			}
+
+			validatorBlockchain := core.NewBlockchain(db)
+
+			validator := core.NewValidator(id, node, pubKey, privKey, mempool)
+			validator.StartConsensus(validatorBlockchain)
 		}(i)
 	}
 
 	select {}
 }
-

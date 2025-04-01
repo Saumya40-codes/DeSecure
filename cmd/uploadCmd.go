@@ -63,7 +63,7 @@ var uploadCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Create a node to broadcast the transaction
 		ctx := context.Background()
-		node, err := core.NewNode(ctx, "drm-consensus")
+		node, err := core.NewNode(ctx, "transactions")
 		if err != nil {
 			fmt.Println("Error creating P2P node:", err)
 			return

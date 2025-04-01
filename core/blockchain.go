@@ -31,7 +31,7 @@ type Blockchain struct {
 	Blocks    []*Block
 	VoteCount map[string]int
 	mu        sync.Mutex
-	db        *storage.DB // Add DB reference
+	db        *storage.DB
 }
 
 func NewBlockchain(db *storage.DB) *Blockchain {
@@ -41,10 +41,8 @@ func NewBlockchain(db *storage.DB) *Blockchain {
 		db:        db,
 	}
 
-	// Try to load existing blockchain from DB
 	bc.loadFromDB()
 
-	// If no blocks were loaded, create genesis block
 	if len(bc.Blocks) == 0 {
 		genesis := CreateGenesisBlock()
 		bc.Blocks = append(bc.Blocks, genesis)
@@ -191,4 +189,3 @@ func CreateBlock(prevBlock Block, transactions []LicenseTransaction) *Block {
 	newBlock.Hash = calculateHash(*newBlock)
 	return newBlock
 }
-

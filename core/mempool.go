@@ -34,3 +34,30 @@ func (m *Mempool) Clear() {
 
 	m.transactions = []LicenseTransaction{}
 }
+
+// Get a transaction by ID
+func (m *Mempool) GetTransactionByID(txID string) *LicenseTransaction {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, tx := range m.transactions {
+		if tx.TxID == txID {
+			return &m.transactions[i]
+		}
+	}
+	return nil
+}
+
+// Remove a transaction by ID
+func (m *Mempool) RemoveTransaction(txID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, tx := range m.transactions {
+		if tx.TxID == txID {
+			// Remove the transaction from the slice
+			m.transactions = append(m.transactions[:i], m.transactions[i+1:]...)
+			return
+		}
+	}
+}

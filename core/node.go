@@ -26,48 +26,51 @@ func (n *Node) BroadcastTransaction(tx LicenseTransaction) {
 	if err := n.Topic.Publish(context.Background(), txData); err != nil {
 		log.Println("Error broadcasting transaction:", err)
 	}
+	log.Println("Broadcasted!!")
 }
 
-type DiscoveryNotifee struct{}
+type DiscoveryNotifee struct {
+	host host.Host
+}
 
-// HandlePeerFound is called when a peer is discovered
 func (d *DiscoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
-	fmt.Println("Discovered new peer:", pi)
+	fmt.Println("Discovered new peer:", pi.ID)
+
+	if err := d.host.Connect(context.Background(), pi); err != nil {
+		log.Println("Error connecting to discovered peer:", err)
+	} else {
+		log.Println("Connected to discovered peer:", pi.ID)
+	}
 }
 
 func NewNode(ctx context.Context, topicName string) (*Node, error) {
-	// Create a new libp2p host
 	h, err := libp2p.New()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host: %w", err)
 	}
 
-	// Create a pubsub instance
-	ps, err := pubsub.NewGossipSub(ctx, h)
+	ps, err := pubsub.NewGossipSub(ctx, h, pubsub.WithFloodPublish(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pubsub: %w", err)
 	}
 
-	// Join the blockchain topic
 	topic, err := ps.Join(topicName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to join topic: %w", err)
 	}
 
-	// Subscribe to the topic
 	sub, err := topic.Subscribe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to topic: %w", err)
 	}
 
 	// Enable peer discovery using mDNS
-	notifee := &DiscoveryNotifee{}
+	notifee := &DiscoveryNotifee{host: h}
 	service := mdns.NewMdnsService(h, "blockchain-network", notifee)
 	if err := service.Start(); err != nil {
 		log.Println("Failed to start mDNS:", err)
 	}
 
-	// Return the node
 	return &Node{
 		Host:   h,
 		PubSub: ps,
