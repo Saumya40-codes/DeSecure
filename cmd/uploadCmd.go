@@ -1,14 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/Saumya40-codes/Hopefully_a_blockchain_project/core"
 	storage "github.com/Saumya40-codes/Hopefully_a_blockchain_project/pkg"
@@ -46,12 +49,26 @@ func getSecretKey() [32]byte {
 	return newKey
 }
 
-var filePath string
+var (
+	filePath    string
+	title       string
+	description string
+	category    string
+	license     string
+)
 
 var uploadCmd = &cobra.Command{
 	Use:   "upload",
 	Short: "Upload a file to IPFS and register license transaction",
 	Run: func(cmd *cobra.Command, args []string) {
+		// Create a node to broadcast the transaction
+		ctx := context.Background()
+		node, err := core.NewNode(ctx, "drm-consensus")
+		if err != nil {
+			fmt.Println("Error creating P2P node:", err)
+			return
+		}
+
 		privKey, pubKey := ensureKeyPair()
 
 		cid, err := storage.UploadtoIPFS(filePath)
@@ -63,27 +80,50 @@ var uploadCmd = &cobra.Command{
 
 		assetHash := cid
 
-		transaction := core.LicenseTransaction{
-			Owner:     pubKey,
-			AssetHash: assetHash,
-			License:   "view",
-			Metadata:  `{"Title": "Example", "Description": "Test file", "Category": "Docs"}`,
+		// Create metadata object
+		metadata := map[string]string{
+			"Title":       title,
+			"Description": description,
+			"Category":    category,
 		}
 
+		metadataJSON, _ := json.Marshal(metadata)
+
+		// Create transaction with all required fields
+		transaction := core.LicenseTransaction{
+			Owner:       pubKey,
+			AssetHash:   assetHash,
+			License:     license,
+			Metadata:    string(metadataJSON),
+			Timestamp:   time.Now().Unix(),
+			IsValidated: false,
+		}
+
+		// Generate transaction ID
+		transaction.TxID = core.GenerateTransactionID(transaction)
+
+		// Sign the transaction
 		transaction.Signature = core.SignTransaction(privKey, &transaction)
 
-		success := core.RegisterLicense(transaction)
-		if success {
-			fmt.Println("✅ License transaction successfully registered in blockchain!")
-		} else {
-			fmt.Println("❌ Transaction verification failed.")
-		}
+		// Instead of accessing the local registry, directly broadcast to network
+		fmt.Println("🌐 Broadcasting transaction to network for validation...")
+		node.BroadcastTransaction(transaction)
+		fmt.Println("✅ Transaction broadcast complete! TxID:", transaction.TxID)
+		fmt.Println("ℹ️ Your transaction will be validated by the network and added to the blockchain.")
+		fmt.Println("ℹ️ You can check its status later using the blockchain command.")
+
+		// Wait a brief moment to ensure message is sent before the program exits
+		time.Sleep(2 * time.Second)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(uploadCmd)
 	uploadCmd.Flags().StringVarP(&filePath, "file", "f", "", "Path to the file to upload")
+	uploadCmd.Flags().StringVarP(&title, "title", "t", "Untitled", "Title of the asset")
+	uploadCmd.Flags().StringVarP(&description, "description", "d", "", "Description of the asset")
+	uploadCmd.Flags().StringVarP(&category, "category", "c", "Uncategorized", "Category of the asset")
+	uploadCmd.Flags().StringVarP(&license, "license", "l", "view", "License type (view, download, etc.)")
 	uploadCmd.MarkFlagRequired("file")
 }
 
