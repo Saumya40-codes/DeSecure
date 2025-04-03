@@ -138,7 +138,7 @@ func (v *Validator) broadcastVote(vote VoteMessage) {
 	}
 
 	ctx := context.Background()
-	if err := v.Node.Topic.Publish(ctx, voteData); err != nil {
+	if err := v.Node.VoteTopic.Publish(ctx, voteData); err != nil {
 		log.Printf("Validator %d error publishing vote: %v", v.ID, err)
 	} else {
 		log.Printf("Validator %d broadcast vote for transaction %s", v.ID, vote.TxID)
@@ -148,7 +148,7 @@ func (v *Validator) broadcastVote(vote VoteMessage) {
 func (v *Validator) handleVotes(blockchain *Blockchain) {
 	ctx := context.Background()
 	for {
-		msg, err := v.Node.Sub.Next(ctx)
+		msg, err := v.Node.VoteSub.Next(ctx)
 		if err != nil {
 			log.Printf("Validator %d error reading vote: %v", v.ID, err)
 			continue
@@ -235,6 +235,7 @@ func ListenForTransactions(node *Node, blockchain *Blockchain, db *storage.DB, m
 
 	for {
 		msg, err := node.Sub.Next(ctx)
+		log.Println("Message Received")
 		if err != nil {
 			log.Println("Error reading from topic:", err)
 			continue

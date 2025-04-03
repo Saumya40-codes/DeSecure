@@ -15,10 +15,12 @@ import (
 
 // Node represents a blockchain node (uploader or validator)
 type Node struct {
-	Host   host.Host
-	PubSub *pubsub.PubSub
-	Topic  *pubsub.Topic
-	Sub    *pubsub.Subscription
+	Host      host.Host
+	PubSub    *pubsub.PubSub
+	Topic     *pubsub.Topic
+	Sub       *pubsub.Subscription
+	VoteTopic *pubsub.Topic
+	VoteSub   *pubsub.Subscription
 }
 
 func (n *Node) BroadcastTransaction(tx LicenseTransaction) {
@@ -43,7 +45,7 @@ func (d *DiscoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
 	}
 }
 
-func NewNode(ctx context.Context, topicName string) (*Node, error) {
+func NewNode(ctx context.Context, topicName string, isValidator bool) (*Node, error) {
 	h, err := libp2p.New()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host: %w", err)
@@ -64,6 +66,20 @@ func NewNode(ctx context.Context, topicName string) (*Node, error) {
 		return nil, fmt.Errorf("failed to subscribe to topic: %w", err)
 	}
 
+	var voteTopic *pubsub.Topic
+	var voteSub *pubsub.Subscription
+	if isValidator {
+		voteTopic, err = ps.Join("vote")
+		if err != nil {
+			return nil, fmt.Errorf("failed to join topic: %w", err)
+		}
+
+		voteSub, err = voteTopic.Subscribe()
+		if err != nil {
+			return nil, fmt.Errorf("failed to subscribe to topic: %w", err)
+		}
+	}
+
 	// Enable peer discovery using mDNS
 	notifee := &DiscoveryNotifee{host: h}
 	service := mdns.NewMdnsService(h, "blockchain-network", notifee)
@@ -72,9 +88,11 @@ func NewNode(ctx context.Context, topicName string) (*Node, error) {
 	}
 
 	return &Node{
-		Host:   h,
-		PubSub: ps,
-		Topic:  topic,
-		Sub:    sub,
+		Host:      h,
+		PubSub:    ps,
+		Topic:     topic,
+		Sub:       sub,
+		VoteTopic: voteTopic,
+		VoteSub:   voteSub,
 	}, nil
 }

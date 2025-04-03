@@ -43,7 +43,7 @@ func main() {
 	defer db.CloseDB()
 
 	log.Println("Creating P2P node...")
-	node, err := core.NewNode(ctx, TopicName)
+	node, err := core.NewNode(ctx, TopicName, false)
 	if err != nil {
 		log.Fatal("Failed to create node:", err)
 	}
@@ -74,7 +74,7 @@ func main() {
 			os.MkdirAll(validatorDBPath, 0o700)
 			db := storage.OpenDB(validatorDBPath)
 
-			node, err := core.NewNode(ctx, TopicName)
+			node, err := core.NewNode(ctx, TopicName, true)
 			if err != nil {
 				log.Fatal("Failed to create node:", err)
 			}
