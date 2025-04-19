@@ -24,7 +24,6 @@ type Block struct {
 	Transaction []LicenseTransaction
 	PrevHash    string
 	Hash        string
-	Validator   string
 }
 
 type Blockchain struct {
@@ -118,28 +117,20 @@ func (bc *Blockchain) AddTransaction(tx LicenseTransaction) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
-	// Track validator votes
-	bc.VoteCount[tx.TxID]++
-
-	if bc.VoteCount[tx.TxID] >= 4 { // At least 4/5 validators approve
-		if len(bc.Blocks) == 0 {
-			log.Println("Error: No blocks in blockchain")
-			return
-		}
-
-		prevBlock := bc.Blocks[len(bc.Blocks)-1]
-		newBlock := CreateBlock(*prevBlock, []LicenseTransaction{tx})
-
-		bc.Blocks = append(bc.Blocks, newBlock)
-		bc.persistBlock(newBlock) // Persist new block
-
-		// Clear vote count for this transaction
-		delete(bc.VoteCount, tx.TxID)
-
-		log.Println("Block added with consensus:", newBlock.Hash)
-	} else {
-		log.Println("Transaction pending consensus:", tx.TxID, "Votes:", bc.VoteCount[tx.TxID])
+	if len(bc.Blocks) == 0 {
+		log.Fatal("Error: No blocks in blockchain")
 	}
+
+	prevBlock := bc.Blocks[len(bc.Blocks)-1]
+	newBlock := CreateBlock(*prevBlock, []LicenseTransaction{tx})
+
+	bc.Blocks = append(bc.Blocks, newBlock)
+	bc.persistBlock(newBlock) // Persist new block
+
+	// Clear vote count for this transaction
+	delete(bc.VoteCount, tx.TxID)
+
+	log.Println("Block added with consensus:", newBlock.Hash)
 }
 
 func (bc *Blockchain) ProcessVote(voteMsg []byte) {
@@ -159,7 +150,7 @@ func (bc *Blockchain) ProcessVote(voteMsg []byte) {
 
 func calculateHash(block Block) string {
 	txData, _ := json.Marshal(block.Transaction)
-	record := fmt.Sprintf("%d%s%s%s%s", block.Index, block.Timestamp, txData, block.PrevHash, block.Validator)
+	record := fmt.Sprintf("%d%s%s%s", block.Index, block.Timestamp, txData, block.PrevHash)
 	hash := sha256.Sum256([]byte(record))
 	return hex.EncodeToString(hash[:])
 }
@@ -170,7 +161,6 @@ func CreateGenesisBlock() *Block {
 		Timestamp:   time.Now().String(),
 		Transaction: []LicenseTransaction{},
 		PrevHash:    "",
-		Validator:   "genesis",
 	}
 
 	genesisBlock.Hash = calculateHash(*genesisBlock)
@@ -183,7 +173,6 @@ func CreateBlock(prevBlock Block, transactions []LicenseTransaction) *Block {
 		Timestamp:   time.Now().String(),
 		Transaction: transactions,
 		PrevHash:    prevBlock.Hash,
-		Validator:   "validator", // This should actually be set to the validator who proposed the block
 	}
 
 	newBlock.Hash = calculateHash(*newBlock)

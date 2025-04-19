@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"hash/fnv"
 	"log"
 	"sync"
 	"time"
@@ -37,6 +37,13 @@ func (v *Validator) findTransactionByID(txID string) *LicenseTransaction {
 	return v.Mempool.GetTransactionByID(txID)
 }
 
+// electProposer selects a proposer deterministically based on TxID
+func electProposer(txID string, totalValidators int) int {
+	h := fnv.New32a()
+	h.Write([]byte(txID))
+	return int(h.Sum32()) % totalValidators
+}
+
 func NewValidator(id int, node *Node, publicKey string, privateKey interface{}, mempool *Mempool) *Validator {
 	return &Validator{
 		ID:         id,
@@ -51,10 +58,8 @@ func NewValidator(id int, node *Node, publicKey string, privateKey interface{}, 
 func (v *Validator) StartConsensus(blockchain *Blockchain) {
 	log.Printf("Validator %d starting consensus process", v.ID)
 
-	// Start a goroutine to handle transaction messages
 	go v.handleTransactions(blockchain)
 
-	// Start a goroutine to handle vote messages
 	go v.handleVotes(blockchain)
 }
 
@@ -156,10 +161,8 @@ func (v *Validator) handleVotes(blockchain *Blockchain) {
 
 		var vote VoteMessage
 		if err := json.Unmarshal(msg.Data, &vote); err != nil {
-			// Try the old format first
 			var oldVote map[string]string
 			if err2 := json.Unmarshal(msg.Data, &oldVote); err2 == nil {
-				// Process old vote format
 				blockchain.ProcessVote(msg.Data)
 			} else {
 				log.Printf("Validator %d received invalid vote format: %v", v.ID, err)
@@ -170,26 +173,25 @@ func (v *Validator) handleVotes(blockchain *Blockchain) {
 		log.Printf("Validator %d received vote for transaction %s from validator %d",
 			v.ID, vote.TxID, vote.ValidatorID)
 
-		// Process the vote through the blockchain
 		blockchain.mu.Lock()
 		blockchain.VoteCount[vote.TxID]++
 		voteCount := blockchain.VoteCount[vote.TxID]
 		blockchain.mu.Unlock()
 
-		// Check if we have enough votes for consensus
 		if voteCount >= 4 { // At least 4/5 validators approve
-			// Find transaction in mempool
 			tx := v.findTransactionByID(vote.TxID)
 			if tx != nil {
-				log.Printf("Validator %d: Consensus reached for transaction %s, adding to blockchain",
-					v.ID, vote.TxID)
-				blockchain.AddTransaction(*tx)
-
-				// Remove transaction from mempool after adding to blockchain
+				proposerID := electProposer(vote.TxID, 5)
+				if v.ID != proposerID {
+					log.Printf("Validator %d: Not proposer for transaction %s, skipping block add", v.ID, vote.TxID)
+				} else {
+					log.Printf("Validator %d: Consensus reached for transaction %s, adding to blockchain", v.ID, vote.TxID)
+					tx.IsValidated = true
+					tx.ValidatorID = v.ID
+					blockchain.AddTransaction(*tx)
+					v.broadcastBlockchainUpdate(blockchain.Blocks[len(blockchain.Blocks)-1])
+				}
 				v.Mempool.RemoveTransaction(vote.TxID)
-
-				// Broadcast updated blockchain state
-				v.broadcastBlockchainUpdate(blockchain.Blocks[len(blockchain.Blocks)-1])
 			} else {
 				log.Printf("Validator %d: Transaction %s not found in mempool", v.ID, vote.TxID)
 			}
@@ -199,8 +201,6 @@ func (v *Validator) handleVotes(blockchain *Blockchain) {
 
 // Broadcast blockchain update to all nodes
 func (v *Validator) broadcastBlockchainUpdate(block *Block) {
-	fmt.Println("Broadcast called")
-	// Create a message that indicates this is a block update
 	updateMsg := map[string]interface{}{
 		"type":  "block_update",
 		"block": block,

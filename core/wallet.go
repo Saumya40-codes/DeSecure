@@ -19,6 +19,7 @@ type LicenseTransaction struct {
 	AssetHash   string // Unique identifier for the asset
 	License     string // License type (e.g., view, download)
 	Signature   string // Digital signature for authenticity
+	ValidatorID int    // Id of the validator who validated the transaction
 	Metadata    string // JSON Metadata (Title, Description, Category)
 	Timestamp   int64  // Unix timestamp of the transaction
 	Expiry      int64  // Unix timestamp for expiration (optional, 0 if no expiry)
