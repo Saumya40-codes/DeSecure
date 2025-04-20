@@ -3,27 +3,95 @@
 
 left to right direction
 skinparam defaultFontSize 18
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
 
 actor "Content Creator" as Creator
 actor "Content Consumer" as Consumer
+actor "Validator Node" as Validator
 
 rectangle "Content Management System" {
-  usecase "Upload Content" as UC1
-  usecase "Store on IPFS" as UC2
-  usecase "Submit License" as UC3
-  usecase "Request Access" as UC4
-  usecase "Validate License" as UC5
-  usecase "Fetch Content" as UC6
-  usecase "Stream to User" as UC7
+  usecase "Prepare Content" as UC1
+  usecase "Generate Key Pair" as UC2
+  usecase "Upload to IPFS" as UC3
+  usecase "Create License Transaction" as UC4
+  usecase "Sign Transaction" as UC5
+  usecase "Broadcast Transaction" as UC6
+  usecase "Validate Transaction" as UC7
+  usecase "Participate in Consensus" as UC8
+  usecase "Request Access" as UC9
+  usecase "Verify License" as UC10
+  usecase "Check Blockchain" as UC11
+  usecase "Fetch from IPFS" as UC12
+  usecase "Stream Content" as UC13
+  usecase "Manage Mempool" as UC14
+  usecase "Update Blockchain" as UC15
 }
 
+' Content Creator flows
 Creator --> UC1
 UC1 --> UC2
 UC2 --> UC3
-
-Consumer --> UC4
+UC3 --> UC4
 UC4 --> UC5
 UC5 --> UC6
-UC6 --> UC7
+
+' Validator flows
+Validator --> UC7
+UC7 --> UC8
+UC8 --> UC14
+UC14 --> UC15
+
+' Content Consumer flows
+Consumer --> UC9
+UC9 --> UC10
+UC10 --> UC11
+UC11 --> UC12
+UC12 --> UC13
+
+' System relationships
+UC6 ..> UC7 : <<include>>
+UC7 ..> UC8 : <<include>>
+UC10 ..> UC11 : <<include>>
+UC14 ..> UC15 : <<include>>
+
+note right of UC1
+  Add metadata
+  (title, description,
+  category)
+end note
+
+note right of UC2
+  ECDSA key pair
+  for signing
+end note
+
+note right of UC3
+  Get CID
+  for content
+end note
+
+note right of UC4
+  Create transaction
+  with metadata
+end note
+
+note right of UC7
+  Check signature
+  and metadata
+end note
+
+note right of UC8
+  Byzantine Fault
+  Tolerant voting
+  (4/5 validators)
+end note
+
+note right of UC11
+  Query blockchain
+  for license status
+end note
 
 @enduml
