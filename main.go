@@ -56,11 +56,11 @@ func main() {
 	log.Printf("Blockchain initialized with %d blocks", len(blockchain.Blocks))
 
 	// Create a shared mempool
-	log.Println("Initializing mempool...")
-	mempool := core.NewMempool()
+	//log.Println("Initializing mempool...")  // might be wrong here but why create mempool for a non validator node?
+	//mempool := core.NewMempool()
 
 	log.Println("Starting transaction listener...")
-	go core.ListenForTransactions(node, blockchain, db, mempool)
+	go core.ListenForTransactions(node, blockchain, db)
 
 	numValidators := 5
 

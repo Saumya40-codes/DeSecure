@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -60,7 +61,7 @@ func (bc *Blockchain) loadFromDB() {
 	}
 
 	latestHash := string(latestHashBytes)
-	var currentHash = latestHash
+	currentHash := latestHash
 
 	// Reconstruct blockchain by walking backward from latest block
 	for currentHash != "" {
@@ -177,4 +178,52 @@ func CreateBlock(prevBlock Block, transactions []LicenseTransaction) *Block {
 
 	newBlock.Hash = calculateHash(*newBlock)
 	return newBlock
+}
+
+func ListenForTransactions(node *Node, blockchain *Blockchain, db *storage.DB) {
+	ctx := context.Background()
+
+	for {
+		msg, err := node.Sub.Next(ctx)
+		log.Println("Message Received")
+		if err != nil {
+			log.Println("Error reading from topic:", err)
+			continue
+		}
+
+		// Try to determine if this is a block update
+		var msgType struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(msg.Data, &msgType); err == nil && msgType.Type == "block_update" {
+			// Handle block update
+			var updateMsg struct {
+				Type  string `json:"type"`
+				Block Block  `json:"block"`
+			}
+			if err := json.Unmarshal(msg.Data, &updateMsg); err == nil {
+				log.Println("Received block update:", updateMsg.Block.Hash)
+
+				// Check if we already have this block
+				hasBlock := false
+				blockchain.mu.Lock()
+				for _, b := range blockchain.Blocks {
+					if b.Hash == updateMsg.Block.Hash {
+						hasBlock = true
+						break
+					}
+				}
+
+				if !hasBlock {
+					// Add the block to our blockchain
+					blockCopy := updateMsg.Block // Make a copy to avoid issues with the pointer
+					blockchain.Blocks = append(blockchain.Blocks, &blockCopy)
+					blockchain.persistBlock(&blockCopy)
+
+					log.Println("Added new block from network:", blockCopy.Hash)
+				}
+				blockchain.mu.Unlock()
+			}
+		}
+	}
 }

@@ -33,7 +33,6 @@ var blockchainCmd = &cobra.Command{
 			fmt.Printf("  Time: %s\n", timeStr)
 			fmt.Printf("  Hash: %s\n", block.Hash)
 			fmt.Printf("  Prev: %s\n", block.PrevHash)
-			fmt.Printf("  Validator: %s\n", block.Validator)
 			fmt.Printf("  Transactions: %d\n", len(block.Transaction))
 
 			verbose, _ := cmd.Flags().GetBool("verbose")

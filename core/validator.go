@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	storage "github.com/Saumya40-codes/Hopefully_a_blockchain_project/pkg"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
 
@@ -178,20 +177,24 @@ func (v *Validator) handleVotes(blockchain *Blockchain) {
 		voteCount := blockchain.VoteCount[vote.TxID]
 		blockchain.mu.Unlock()
 
-		if voteCount >= 4 { // At least 4/5 validators approve
+		if voteCount >= 4 {
 			tx := v.findTransactionByID(vote.TxID)
 			if tx != nil {
-				proposerID := electProposer(vote.TxID, 5)
-				if v.ID != proposerID {
-					log.Printf("Validator %d: Not proposer for transaction %s, skipping block add", v.ID, vote.TxID)
+				if RegisterLicense(*tx, blockchain) {
+					proposerID := electProposer(vote.TxID, 5)
+					if v.ID != proposerID {
+						log.Printf("Validator %d: Not proposer for transaction %s, skipping block add", v.ID, vote.TxID)
+					} else {
+						log.Printf("Validator %d: Consensus reached for transaction %s, adding to blockchain", v.ID, vote.TxID)
+						tx.IsValidated = true
+						tx.ValidatorID = v.ID
+						blockchain.AddTransaction(*tx)
+						v.broadcastBlockchainUpdate(blockchain.Blocks[len(blockchain.Blocks)-1])
+					}
+					v.Mempool.RemoveTransaction(vote.TxID)
 				} else {
-					log.Printf("Validator %d: Consensus reached for transaction %s, adding to blockchain", v.ID, vote.TxID)
-					tx.IsValidated = true
-					tx.ValidatorID = v.ID
-					blockchain.AddTransaction(*tx)
-					v.broadcastBlockchainUpdate(blockchain.Blocks[len(blockchain.Blocks)-1])
+					log.Println("Unable to register your license.")
 				}
-				v.Mempool.RemoveTransaction(vote.TxID)
 			} else {
 				log.Printf("Validator %d: Transaction %s not found in mempool", v.ID, vote.TxID)
 			}
@@ -228,91 +231,4 @@ func ValidateTransaction(tx LicenseTransaction) bool {
 
 	// Verify the digital signature
 	return VerifyTransaction(tx)
-}
-
-func ListenForTransactions(node *Node, blockchain *Blockchain, db *storage.DB, mempool *Mempool) {
-	ctx := context.Background()
-
-	for {
-		msg, err := node.Sub.Next(ctx)
-		log.Println("Message Received")
-		if err != nil {
-			log.Println("Error reading from topic:", err)
-			continue
-		}
-
-		// Try to determine if this is a block update
-		var msgType struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(msg.Data, &msgType); err == nil && msgType.Type == "block_update" {
-			// Handle block update
-			var updateMsg struct {
-				Type  string `json:"type"`
-				Block Block  `json:"block"`
-			}
-			if err := json.Unmarshal(msg.Data, &updateMsg); err == nil {
-				log.Println("Received block update:", updateMsg.Block.Hash)
-
-				// Check if we already have this block
-				hasBlock := false
-				blockchain.mu.Lock()
-				for _, b := range blockchain.Blocks {
-					if b.Hash == updateMsg.Block.Hash {
-						hasBlock = true
-						break
-					}
-				}
-
-				if !hasBlock {
-					// Add the block to our blockchain
-					blockCopy := updateMsg.Block // Make a copy to avoid issues with the pointer
-					blockchain.Blocks = append(blockchain.Blocks, &blockCopy)
-					blockchain.persistBlock(&blockCopy)
-
-					log.Println("Added new block from network:", blockCopy.Hash)
-
-					// Clean up mempool
-					for _, tx := range blockCopy.Transaction {
-						mempool.RemoveTransaction(tx.TxID)
-					}
-				}
-				blockchain.mu.Unlock()
-			}
-			continue
-		}
-
-		// Try to parse as transaction
-		var tx LicenseTransaction
-		if err := json.Unmarshal(msg.Data, &tx); err == nil {
-			log.Println("New transaction received:", tx.TxID)
-
-			// Add to mempool
-			mempool.AddTransaction(tx)
-
-			continue
-		}
-
-		// Try to parse as vote
-		var vote VoteMessage
-		if err := json.Unmarshal(msg.Data, &vote); err == nil {
-			log.Printf("Vote received for transaction: %s", vote.TxID)
-
-			blockchain.mu.Lock()
-			blockchain.VoteCount[vote.TxID]++
-			blockchain.mu.Unlock()
-
-			continue
-		}
-
-		// Try old vote format
-		var oldVote map[string]string
-		if err := json.Unmarshal(msg.Data, &oldVote); err == nil {
-			txID, ok := oldVote["txID"]
-			if ok {
-				log.Println("Vote received for transaction (old format):", txID)
-				blockchain.ProcessVote(msg.Data)
-			}
-		}
-	}
 }
