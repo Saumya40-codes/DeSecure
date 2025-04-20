@@ -1,0 +1,57 @@
+@startuml
+!theme plain
+skinparam defaultFontSize 18
+skinparam state {
+  BackgroundColor LightYellow
+  BorderColor Black
+}
+
+[*] --> Draft
+Draft --> Uploaded : Upload via CLI
+Uploaded --> PendingValidation : Broadcast to Network
+PendingValidation --> Validating : Validators Receive
+Validating --> Consensus : Votes Collected
+Consensus --> Licensed : 4/5 Validators Approve
+Consensus --> Rejected : Insufficient Votes
+Rejected --> [*]
+Licensed --> Accessible : Access Verified
+Accessible --> Streamed : Content Fetched
+Streamed --> [*]
+
+note right of Draft
+  Content is prepared
+  with metadata
+end note
+
+note right of Uploaded
+  Content stored on IPFS
+  CID generated
+end note
+
+note right of PendingValidation
+  Transaction in mempool
+  awaiting validators
+end note
+
+note right of Validating
+  Validators check
+  signature & metadata
+end note
+
+note right of Consensus
+  Byzantine Fault
+  Tolerant voting
+end note
+
+note right of Licensed
+  Transaction added
+  to blockchain
+end note
+
+note right of Accessible
+  License verified
+  against blockchain
+end note
+
+@enduml
+

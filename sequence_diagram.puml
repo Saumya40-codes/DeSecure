@@ -1,0 +1,53 @@
+@startuml
+
+' Avoid theme issues by customizing directly
+skinparam defaultFontSize 16
+skinparam sequence {
+  ArrowColor RoyalBlue
+  ActorBorderColor Black
+  ActorBackgroundColor White
+  ParticipantBorderColor Black
+  ParticipantBackgroundColor HoneyDew
+  LifeLineBorderColor Gray
+  LifeLineBackgroundColor White
+  ParticipantFontSize 16
+  ParticipantPadding 30
+  BoxFontSize 14
+  BoxPadding 10
+}
+
+actor "Content Creator" as Creator
+actor "Content Consumer" as Consumer
+participant "CLI Interface" as CLI
+participant "IPFS Client" as IPFS
+participant "Transaction Handler" as TX
+participant "P2P Network" as P2P
+participant "Validator Node" as Validator
+participant "Consensus Service" as Consensus
+participant "Blockchain Ledger" as Ledger
+participant "License Verifier" as LicenseVerifier
+
+== Upload Flow ==
+
+Creator -> CLI : Upload Content
+CLI -> IPFS : Store on IPFS
+IPFS -> IPFS : Get CID
+IPFS --> CLI : Return CID
+CLI -> TX : Submit License Transaction
+TX -> P2P : Broadcast Tx
+P2P -> Validator : Send Tx
+Validator -> Consensus : Validate Tx
+Consensus -> Ledger : Commit Tx
+
+== Access Flow ==
+
+Consumer -> CLI : Request Access
+CLI -> LicenseVerifier : Validate License
+LicenseVerifier -> Ledger : Query Tx Status
+Ledger --> LicenseVerifier : License Found
+LicenseVerifier --> CLI : Grant Access
+CLI -> IPFS : Fetch Content
+IPFS --> CLI : Return Content
+CLI --> Consumer : Stream Content
+
+@enduml
