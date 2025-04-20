@@ -29,7 +29,7 @@ type Block struct {
 
 type Blockchain struct {
 	Blocks    []*Block
-	VoteCount map[string]int
+	VoteCount map[string]map[int]bool
 	mu        sync.Mutex
 	db        *storage.DB
 }
@@ -37,17 +37,19 @@ type Blockchain struct {
 func NewBlockchain(db *storage.DB) *Blockchain {
 	bc := &Blockchain{
 		Blocks:    []*Block{},
-		VoteCount: make(map[string]int),
+		VoteCount: make(map[string]map[int]bool),
 		db:        db,
 	}
 
-	bc.loadFromDB()
-
-	if len(bc.Blocks) == 0 {
+	_, err := db.Load(LatestBlockKey)
+	if err != nil {
 		genesis := CreateGenesisBlock()
 		bc.Blocks = append(bc.Blocks, genesis)
+		log.Println("Genesis block created with", genesis.Hash)
 		bc.persistBlock(genesis)
 	}
+
+	bc.loadFromDB()
 
 	return bc
 }
@@ -77,13 +79,11 @@ func (bc *Blockchain) loadFromDB() {
 			break
 		}
 
-		// Prepend to maintain correct order
 		bc.Blocks = append([]*Block{&block}, bc.Blocks...)
 
-		// Move to previous block
 		currentHash = block.PrevHash
+		fmt.Println("CHash ", currentHash)
 		if currentHash == "" {
-			// Reached genesis block
 			break
 		}
 	}
@@ -98,6 +98,7 @@ func (bc *Blockchain) persistBlock(block *Block) {
 		log.Println("Error marshaling block:", err)
 		return
 	}
+	fmt.Println(block)
 
 	// Save block by hash
 	if err := bc.db.Save(BlockPrefix+block.Hash, blockData); err != nil {
@@ -134,21 +135,6 @@ func (bc *Blockchain) AddTransaction(tx LicenseTransaction) {
 	log.Println("Block added with consensus:", newBlock.Hash)
 }
 
-func (bc *Blockchain) ProcessVote(voteMsg []byte) {
-	var vote map[string]string
-	if err := json.Unmarshal(voteMsg, &vote); err != nil {
-		log.Println("Invalid vote format:", err)
-		return
-	}
-
-	txID := vote["txID"]
-	bc.mu.Lock()
-	bc.VoteCount[txID]++
-	bc.mu.Unlock()
-
-	log.Println("Vote processed for transaction:", txID, "Current votes:", bc.VoteCount[txID])
-}
-
 func calculateHash(block Block) string {
 	txData, _ := json.Marshal(block.Transaction)
 	record := fmt.Sprintf("%d%s%s%s", block.Index, block.Timestamp, txData, block.PrevHash)
@@ -165,6 +151,7 @@ func CreateGenesisBlock() *Block {
 	}
 
 	genesisBlock.Hash = calculateHash(*genesisBlock)
+	fmt.Println("GENESIS CREATED ", genesisBlock)
 	return genesisBlock
 }
 
@@ -177,6 +164,7 @@ func CreateBlock(prevBlock Block, transactions []LicenseTransaction) *Block {
 	}
 
 	newBlock.Hash = calculateHash(*newBlock)
+	fmt.Println("NEW BLOCK CREATED ", newBlock)
 	return newBlock
 }
 
@@ -215,8 +203,8 @@ func ListenForTransactions(node *Node, blockchain *Blockchain, db *storage.DB) {
 				}
 
 				if !hasBlock {
-					// Add the block to our blockchain
-					blockCopy := updateMsg.Block // Make a copy to avoid issues with the pointer
+					blockCopy := updateMsg.Block
+					blockCopy.PrevHash = blockchain.Blocks[len(blockchain.Blocks)-1].Hash // we dont want validators blocks last hash :)
 					blockchain.Blocks = append(blockchain.Blocks, &blockCopy)
 					blockchain.persistBlock(&blockCopy)
 

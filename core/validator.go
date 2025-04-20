@@ -54,17 +54,15 @@ func NewValidator(id int, node *Node, publicKey string, privateKey interface{}, 
 	}
 }
 
-func (v *Validator) StartConsensus(blockchain *Blockchain) {
+func (v *Validator) StartConsensus(ctx context.Context, blockchain *Blockchain) {
 	log.Printf("Validator %d starting consensus process", v.ID)
 
-	go v.handleTransactions(blockchain)
+	go v.handleTransactions(ctx, blockchain)
 
-	go v.handleVotes(blockchain)
+	go v.handleVotes(ctx, blockchain)
 }
 
-func (v *Validator) handleTransactions(blockchain *Blockchain) {
-	ctx := context.Background()
-
+func (v *Validator) handleTransactions(ctx context.Context, blockchain *Blockchain) {
 	topicJoinOnce.Do(func() {
 		var err error
 		topicJoin, err = v.Node.PubSub.Join("transactions")
@@ -83,46 +81,55 @@ func (v *Validator) handleTransactions(blockchain *Blockchain) {
 	if err != nil {
 		log.Printf("Validator %d failed to subscribe to transactions: %v", v.ID, err)
 		return
-	} else {
-		log.Println("Topic subscribed")
 	}
 
 	for {
-		msg, err := txSub.Next(ctx)
-		if err != nil {
-			log.Printf("Validator %d error reading transaction: %v", v.ID, err)
-			continue
-		}
-
-		if msg.ReceivedFrom == v.Node.Host.ID() {
-			continue
-		}
-
-		var transaction LicenseTransaction
-		if err := json.Unmarshal(msg.Data, &transaction); err != nil {
-			log.Printf("Validator %d received invalid transaction format: %v", v.ID, err)
-			continue
-		}
-
-		v.Mempool.AddTransaction(transaction)
-
-		log.Printf("Validator %d received transaction %s", v.ID, transaction.TxID)
-
-		if ValidateTransaction(transaction) {
-			log.Printf("Validator %d approved transaction %s", v.ID, transaction.TxID)
-
-			vote := VoteMessage{
-				TxID:        transaction.TxID,
-				ValidatorID: v.ID,
-				Timestamp:   time.Now().Unix(),
-				Approved:    true,
-				Signature:   "",
+		select {
+		case <-ctx.Done():
+			log.Printf("Validator %d transaction handler exiting", v.ID)
+			return
+		default:
+			msg, err := txSub.Next(ctx)
+			if err != nil {
+				log.Printf("Validator %d error reading transaction: %v", v.ID, err)
+				continue
 			}
 
-			v.broadcastVote(vote)
-		} else {
-			log.Printf("Validator %d rejected transaction %s", v.ID, transaction.TxID)
+			if msg.ReceivedFrom == v.Node.Host.ID() {
+				continue
+			}
+
+			var transaction LicenseTransaction
+			if err := json.Unmarshal(msg.Data, &transaction); err != nil {
+				log.Printf("Validator %d received invalid transaction format: %v", v.ID, err)
+				continue
+			}
+
+			v.Mempool.AddTransaction(transaction)
+			log.Printf("Validator %d received transaction %s", v.ID, transaction.TxID)
+
+			if ValidateTransaction(transaction) {
+				vote := VoteMessage{
+					TxID:        transaction.TxID,
+					ValidatorID: v.ID,
+					Timestamp:   time.Now().Unix(),
+					Approved:    true,
+					Signature:   "",
+				}
+				v.broadcastVote(vote)
+			} else {
+				log.Printf("Validator %d rejected transaction %s", v.ID, transaction.TxID)
+			}
+
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				log.Printf("Validator %d transaction handler exiting after sleep", v.ID)
+				return
+			}
 		}
+
+		time.Sleep(4 * time.Second)
 	}
 }
 
@@ -149,56 +156,82 @@ func (v *Validator) broadcastVote(vote VoteMessage) {
 	}
 }
 
-func (v *Validator) handleVotes(blockchain *Blockchain) {
-	ctx := context.Background()
+func (v *Validator) handleVotes(ctx context.Context, blockchain *Blockchain) {
 	for {
-		msg, err := v.Node.VoteSub.Next(ctx)
-		if err != nil {
-			log.Printf("Validator %d error reading vote: %v", v.ID, err)
-			continue
-		}
-
-		var vote VoteMessage
-		if err := json.Unmarshal(msg.Data, &vote); err != nil {
-			var oldVote map[string]string
-			if err2 := json.Unmarshal(msg.Data, &oldVote); err2 == nil {
-				blockchain.ProcessVote(msg.Data)
-			} else {
-				log.Printf("Validator %d received invalid vote format: %v", v.ID, err)
+		select {
+		case <-ctx.Done():
+			log.Printf("Validator %d vote handler exiting", v.ID)
+			return
+		default:
+			msg, err := v.Node.VoteSub.Next(ctx)
+			if err != nil {
+				time.Sleep(2 * time.Second)
+				continue
 			}
-			continue
-		}
 
-		log.Printf("Validator %d received vote for transaction %s from validator %d",
-			v.ID, vote.TxID, vote.ValidatorID)
-
-		blockchain.mu.Lock()
-		blockchain.VoteCount[vote.TxID]++
-		voteCount := blockchain.VoteCount[vote.TxID]
-		blockchain.mu.Unlock()
-
-		if voteCount >= 4 {
-			tx := v.findTransactionByID(vote.TxID)
-			if tx != nil {
-				if RegisterLicense(*tx, blockchain) {
-					proposerID := electProposer(vote.TxID, 5)
-					if v.ID != proposerID {
-						log.Printf("Validator %d: Not proposer for transaction %s, skipping block add", v.ID, vote.TxID)
-					} else {
-						log.Printf("Validator %d: Consensus reached for transaction %s, adding to blockchain", v.ID, vote.TxID)
-						tx.IsValidated = true
-						tx.ValidatorID = v.ID
-						blockchain.AddTransaction(*tx)
-						v.broadcastBlockchainUpdate(blockchain.Blocks[len(blockchain.Blocks)-1])
-					}
-					v.Mempool.RemoveTransaction(vote.TxID)
-				} else {
-					log.Println("Unable to register your license.")
+			var vote VoteMessage
+			if err := json.Unmarshal(msg.Data, &vote); err != nil {
+				var oldVote map[string]string
+				if err2 := json.Unmarshal(msg.Data, &oldVote); err2 != nil {
+					log.Printf("Validator %d received invalid vote format: %v", v.ID, err)
 				}
-			} else {
-				log.Printf("Validator %d: Transaction %s not found in mempool", v.ID, vote.TxID)
+				continue
+			}
+
+			log.Printf("Validator %d received vote for transaction %s from validator %d",
+				v.ID, vote.TxID, vote.ValidatorID)
+
+			blockchain.mu.Lock()
+			if blockchain.VoteCount[vote.TxID] == nil {
+				blockchain.VoteCount[vote.TxID] = make(map[int]bool)
+			}
+			blockchain.VoteCount[vote.TxID][vote.ValidatorID] = vote.Approved
+			voteCount := len(blockchain.VoteCount[vote.TxID])
+			blockchain.mu.Unlock()
+
+			if voteCount == 5 {
+				blockchain.mu.Lock()
+				approvals := 0
+				for _, approved := range blockchain.VoteCount[vote.TxID] {
+					if approved {
+						approvals++
+					}
+				}
+				blockchain.mu.Unlock()
+
+				if approvals >= 4 {
+					tx := v.findTransactionByID(vote.TxID)
+					if tx != nil {
+						if RegisterLicense(*tx, blockchain) {
+							proposerID := electProposer(vote.TxID, 5)
+							if v.ID == proposerID {
+								tx.IsValidated = true
+								tx.ValidatorID = v.ID
+								blockchain.AddTransaction(*tx)
+								v.broadcastBlockchainUpdate(blockchain.Blocks[len(blockchain.Blocks)-1])
+							} else {
+								log.Printf("Validator %d: Not proposer for transaction %s", v.ID, vote.TxID)
+							}
+							v.Mempool.RemoveTransaction(vote.TxID)
+						}
+					} else {
+						log.Printf("Validator %d: Transaction %s not found in mempool", v.ID, vote.TxID)
+					}
+				} else {
+					log.Printf("Transaction %s rejected: only %d approvals", vote.TxID, approvals)
+					v.Mempool.RemoveTransaction(vote.TxID)
+				}
+			}
+
+			select {
+			case <-time.After(4 * time.Second):
+			case <-ctx.Done():
+				log.Printf("Validator %d vote handler exiting after sleep", v.ID)
+				return
 			}
 		}
+
+		time.Sleep(4 * time.Second)
 	}
 }
 
@@ -224,7 +257,6 @@ func (v *Validator) broadcastBlockchainUpdate(block *Block) {
 }
 
 func ValidateTransaction(tx LicenseTransaction) bool {
-	// Basic validation
 	if tx.Owner == "" || tx.AssetHash == "" {
 		return false
 	}

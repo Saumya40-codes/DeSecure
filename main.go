@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 
 	"github.com/Saumya40-codes/Hopefully_a_blockchain_project/cmd"
@@ -55,37 +56,52 @@ func main() {
 	log.Printf("Blockchain initialized with %d blocks", len(blockchain.Blocks))
 
 	// Create a shared mempool
-	//log.Println("Initializing mempool...")  // might be wrong here but why create mempool for a non validator node?
-	//mempool := core.NewMempool()
+	// log.Println("Initializing mempool...")  // might be wrong here but why create mempool for a non validator node?
+	// mempool := core.NewMempool()
 
 	log.Println("Starting transaction listener...")
 	go core.ListenForTransactions(node, blockchain, db)
 
 	numValidators := 5
 
+	wg := &sync.WaitGroup{}
 	log.Printf("Starting %d validators...", numValidators)
+
 	for i := range numValidators {
+		wg.Add(1)
 		go func(id int) {
+			defer wg.Done()
+
 			privKey, pubKey := core.GenerateKeyPair()
 			log.Printf("Validator %d initialized with public key: %s", id, pubKey[:16]+"...")
 
 			validatorDBPath := ValidatorDataDirPath + "/validator_" + strconv.Itoa(id)
 			os.MkdirAll(validatorDBPath, 0o700)
 			db := storage.OpenDB(validatorDBPath)
+			defer func() {
+				db.CloseDB()
+				log.Printf("Validator %d DB closed", id)
+			}()
 
 			node, err := core.NewNode(ctx, TopicName, true)
 			if err != nil {
-				log.Fatal("Failed to create node:", err)
+				log.Printf("Validator %d failed to create node: %v", id, err)
+				return
 			}
 
 			validatorBlockchain := core.NewBlockchain(db)
-
 			mempool := core.NewMempool()
 
 			validator := core.NewValidator(id, node, pubKey, privKey, mempool)
-			validator.StartConsensus(validatorBlockchain)
+			validator.StartConsensus(ctx, validatorBlockchain)
+
+			<-ctx.Done()
+			log.Printf("Validator %d received shutdown signal", id)
 		}(i)
 	}
 
 	<-ctx.Done()
+	log.Println("Main context canceled, waiting for validators to shut down...")
+	wg.Wait()
+	log.Println("All validators shut down cleanly.")
 }

@@ -91,15 +91,7 @@ func NewNode(ctx context.Context, topicName string, isValidator bool) (*Node, er
 		log.Println("Failed to start mDNS:", err)
 	}
 
-	go func(ctx context.Context, service Service) {
-		select {
-		case <-ctx.Done():
-			log.Println("Context cancelled, shutting down mDNS service...")
-			service.Close()
-		}
-	}(ctx, service)
-
-	return &Node{
+	newNode, err := &Node{
 		Host:      h,
 		PubSub:    ps,
 		Topic:     topic,
@@ -107,4 +99,20 @@ func NewNode(ctx context.Context, topicName string, isValidator bool) (*Node, er
 		VoteTopic: voteTopic,
 		VoteSub:   voteSub,
 	}, nil
+
+	go func(ctx context.Context, service Service, node *Node) {
+		select {
+		case <-ctx.Done():
+			log.Println("Context cancelled, shutting down mDNS service...")
+			if node.Sub != nil {
+				node.Sub.Cancel()
+			}
+			if node.VoteSub != nil {
+				node.VoteSub.Cancel()
+			}
+			service.Close()
+		}
+	}(ctx, service, newNode)
+
+	return newNode, err
 }
