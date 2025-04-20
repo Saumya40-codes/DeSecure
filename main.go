@@ -34,7 +34,6 @@ func main() {
 		<-c
 		log.Println("Shutting down...")
 		cancel()
-		os.Exit(0)
 	}()
 
 	log.Println("Opening database connection...")
@@ -88,5 +87,5 @@ func main() {
 		}(i)
 	}
 
-	select {}
+	<-ctx.Done()
 }

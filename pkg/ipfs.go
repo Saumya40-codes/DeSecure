@@ -10,6 +10,7 @@ func UploadtoIPFS(filePath string) (string, error) {
 	sh := shell.NewShell("localhost:5001")
 
 	file, err := os.Open(filePath)
+	defer file.Close()
 	if err != nil {
 		return "", err
 	}

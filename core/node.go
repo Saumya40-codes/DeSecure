@@ -45,6 +45,10 @@ func (d *DiscoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
 	}
 }
 
+type Service interface {
+	Close() error
+}
+
 func NewNode(ctx context.Context, topicName string, isValidator bool) (*Node, error) {
 	h, err := libp2p.New()
 	if err != nil {
@@ -86,6 +90,14 @@ func NewNode(ctx context.Context, topicName string, isValidator bool) (*Node, er
 	if err := service.Start(); err != nil {
 		log.Println("Failed to start mDNS:", err)
 	}
+
+	go func(ctx context.Context, service Service) {
+		select {
+		case <-ctx.Done():
+			log.Println("Context cancelled, shutting down mDNS service...")
+			service.Close()
+		}
+	}(ctx, service)
 
 	return &Node{
 		Host:      h,
