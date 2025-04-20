@@ -1,0 +1,29 @@
+@startuml
+!theme sandstone
+
+left to right direction
+skinparam defaultFontSize 18
+
+actor "Content Creator" as Creator
+actor "Content Consumer" as Consumer
+
+rectangle "Content Management System" {
+  usecase "Upload Content" as UC1
+  usecase "Store on IPFS" as UC2
+  usecase "Submit License" as UC3
+  usecase "Request Access" as UC4
+  usecase "Validate License" as UC5
+  usecase "Fetch Content" as UC6
+  usecase "Stream to User" as UC7
+}
+
+Creator --> UC1
+UC1 --> UC2
+UC2 --> UC3
+
+Consumer --> UC4
+UC4 --> UC5
+UC5 --> UC6
+UC6 --> UC7
+
+@enduml

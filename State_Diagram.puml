@@ -1,0 +1,18 @@
+@startuml
+!theme plain
+skinparam defaultFontSize 18
+skinparam state {
+  BackgroundColor LightYellow
+  BorderColor Black
+}
+
+[*] --> Draft
+Draft --> Uploaded : Upload via CLI
+Uploaded --> Licensed : Submit License Tx
+Licensed --> Accessible : Access Verified
+Accessible --> Streamed : Content Fetched
+
+Streamed --> [*]
+
+@enduml
+
