@@ -97,6 +97,7 @@ var uploadCmd = &cobra.Command{
 			Metadata:    string(metadataJSON),
 			Timestamp:   time.Now().Unix(),
 			IsValidated: false,
+			TxType:      "upload",
 		}
 
 		// Generate transaction ID

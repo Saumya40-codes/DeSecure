@@ -12,20 +12,24 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var listAssetsCmd = &cobra.Command{
-	Use:   "list-assets",
-	Short: "List available assets on the blockchain",
+var myAssetsCmd = &cobra.Command{
+	Use:   "my-assets",
+	Short: "List assets you own or have purchased licenses for",
 	Run: func(cmd *cobra.Command, args []string) {
 		db := storage.OpenDB("./data")
 		defer db.CloseDB()
 
 		blockchain := core.NewBlockchain(db)
 
+		// Get user's public key
+		_, pubKey := loadKeyPair()
+
 		titleColor := color.New(color.FgCyan, color.Bold)
 		headerColor := color.New(color.FgGreen, color.Bold)
 		infoColor := color.New(color.FgWhite)
 		hashColor := color.New(color.FgYellow)
 		categoryColor := color.New(color.FgMagenta)
+		roleColor := color.New(color.FgRed, color.Bold)
 
 		// Print pretty header
 		printCenteredTitle := func(title string) {
@@ -36,30 +40,32 @@ var listAssetsCmd = &cobra.Command{
 			titleColor.Println(strings.Repeat("=", width))
 		}
 
-		printCenteredTitle("Available Digital Assets")
+		printCenteredTitle("Your Digital Assets")
 
-		// Track unique assets to avoid duplicates
-		uniqueAssets := make(map[string]core.LicenseTransaction)
+		// Track unique assets (owned or licensed)
+		myAssets := make(map[string]core.LicenseTransaction)
 
-		// Iterate through blocks in reverse order to get the latest transactions
+		// Iterate through blocks to find relevant transactions
 		for i := len(blockchain.Blocks) - 1; i >= 0; i-- {
 			block := blockchain.Blocks[i]
 			for _, tx := range block.Transaction {
-				// Only add if we haven't seen this asset yet
-				if _, exists := uniqueAssets[tx.AssetHash]; !exists {
-					uniqueAssets[tx.AssetHash] = tx
+				// If you're the owner or licensee and we haven't seen this asset yet
+				if tx.Owner == pubKey || tx.Licensee == pubKey {
+					if _, exists := myAssets[tx.AssetHash]; !exists {
+						myAssets[tx.AssetHash] = tx
+					}
 				}
 			}
 		}
 
-		if len(uniqueAssets) == 0 {
-			fmt.Println("\n🔍 No assets found on the blockchain.")
+		if len(myAssets) == 0 {
+			fmt.Println("\n🔍 You don't have any assets on the blockchain.")
 			return
 		}
 
 		// Display assets
 		count := 1
-		for assetHash, tx := range uniqueAssets {
+		for assetHash, tx := range myAssets {
 			fmt.Println()
 			headerColor.Printf("Asset #%d\n", count)
 			fmt.Println(strings.Repeat("-", 40))
@@ -84,11 +90,18 @@ var listAssetsCmd = &cobra.Command{
 			infoColor.Printf("🔑 License Type: ")
 			fmt.Printf("%s\n", tx.License)
 
-			infoColor.Printf("👤 Owner: ")
-			fmt.Printf("%s\n", shortenKey(tx.Owner))
+			// Show your role (owner or licensee)
+			infoColor.Printf("👤 Your Role: ")
+			if tx.Owner == pubKey {
+				roleColor.Printf("Owner\n")
+			} else {
+				roleColor.Printf("Licensee\n")
+				infoColor.Printf("👤 Owner: ")
+				fmt.Printf("%s\n", shortenKey(tx.Owner))
+			}
 
 			infoColor.Printf("🆔 Asset ID: ")
-			hashColor.Printf("%s\n", assetHash)
+			hashColor.Printf("%s\n", shortenHash(assetHash))
 
 			// Display timestamp in human-readable format
 			if tx.Timestamp > 0 {
@@ -103,22 +116,6 @@ var listAssetsCmd = &cobra.Command{
 	},
 }
 
-// Helper function to shorten hash for display
-func shortenHash(hash string) string {
-	if len(hash) <= 16 {
-		return hash
-	}
-	return hash[:8] + "..." + hash[len(hash)-8:]
-}
-
-// Helper function to shorten public key for display
-func shortenKey(key string) string {
-	if len(key) <= 16 {
-		return key
-	}
-	return key[:8] + "..." + key[len(key)-8:]
-}
-
 func init() {
-	rootCmd.AddCommand(listAssetsCmd)
+	rootCmd.AddCommand(myAssetsCmd)
 }

@@ -114,7 +114,6 @@ func (v *Validator) handleTransactions(ctx context.Context, blockchain *Blockcha
 					ValidatorID: v.ID,
 					Timestamp:   time.Now().Unix(),
 					Approved:    true,
-					Signature:   "",
 				}
 				v.broadcastVote(vote)
 			} else {
@@ -138,7 +137,6 @@ type VoteMessage struct {
 	ValidatorID int
 	Timestamp   int64
 	Approved    bool
-	Signature   string
 }
 
 func (v *Validator) broadcastVote(vote VoteMessage) {

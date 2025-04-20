@@ -21,6 +21,7 @@ type Node struct {
 	Sub       *pubsub.Subscription
 	VoteTopic *pubsub.Topic
 	VoteSub   *pubsub.Subscription
+	// Balance   uint64  a hypothetical blockchain, no we dont need price
 }
 
 func (n *Node) BroadcastTransaction(tx LicenseTransaction) {

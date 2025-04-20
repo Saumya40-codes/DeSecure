@@ -11,7 +11,6 @@ import (
 	"log"
 	"math/big"
 	"sync"
-	"time"
 )
 
 // LicenseTransaction struct with additional fields
@@ -28,6 +27,8 @@ type LicenseTransaction struct {
 	Licensee    string // Public key of the license recipient (if applicable)
 	IsValidated bool   // Whether the transaction has been validated
 	Nonce       uint64 // We can use this for transaction replay protection
+	TxType      string // Transaction type: "upload", "purchase", etc.
+	// Price       float64 // a hypothetical blockchain, no we dont need price
 }
 
 // Global License Registry
@@ -36,7 +37,7 @@ var licenseRegistry = struct {
 	licenses map[string]LicenseTransaction // AssetHash -> LicenseTransaction
 }{licenses: make(map[string]LicenseTransaction)}
 
-// Generate a new key pai
+// Generate a new key pair
 func GenerateKeyPair() (*ecdsa.PrivateKey, string) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -97,11 +98,6 @@ func RegisterLicense(transaction LicenseTransaction, bc *Blockchain) bool {
 	licenseRegistry.Lock()
 	defer licenseRegistry.Unlock()
 
-	if val, _ := bc.db.Load(transaction.AssetHash); val != nil {
-		log.Println("License already exists for asset:", transaction.AssetHash)
-		return false
-	}
-
 	for _, block := range bc.Blocks {
 		for _, existingTx := range block.Transaction {
 			// Check for proper nonce sequence
@@ -112,37 +108,48 @@ func RegisterLicense(transaction LicenseTransaction, bc *Blockchain) bool {
 		}
 	}
 
-	licenseRegistry.licenses[transaction.AssetHash] = transaction
-	jsonTransac, err := json.Marshal(transaction)
-	if err != nil {
-		log.Fatal("error occured")
-	}
+	if transaction.TxType == "upload" {
+		if val, _ := bc.db.Load(transaction.AssetHash); val != nil {
+			log.Println("License already exists for asset:", transaction.AssetHash)
+			return false
+		}
 
-	bc.db.Save(transaction.AssetHash, jsonTransac)
-	fmt.Println("License registered:", transaction.AssetHash, "Owner:", transaction.Owner)
+		licenseRegistry.licenses[transaction.AssetHash] = transaction
+		jsonTransac, err := json.Marshal(transaction)
+		if err != nil {
+			log.Fatal("error occured")
+		}
+
+		bc.db.Save(transaction.AssetHash, jsonTransac)
+		fmt.Println("License registered:", transaction.AssetHash, "Owner:", transaction.Owner)
+	} else {
+		if val, _ := bc.db.Load(transaction.AssetHash); val == nil {
+			log.Fatal("The asset doesn't exists")
+		}
+
+		for _, block := range bc.Blocks {
+			for _, existingTx := range block.Transaction {
+				if existingTx.AssetHash == transaction.AssetHash && existingTx.Owner != transaction.Owner {
+					log.Fatal("Invalid transaction")
+				}
+			}
+		}
+	}
 	return true
 }
 
 // Check if a user has a valid, unexpired license
-func HasValidLicense(user string, assetHash string) bool {
+func HasValidLicense(assetHash string, bc *Blockchain, pubKey string) bool {
 	licenseRegistry.Lock()
 	defer licenseRegistry.Unlock()
 
-	license, exists := licenseRegistry.licenses[assetHash]
-	if !exists {
-		return false
+	for _, block := range bc.Blocks {
+		for _, existingTx := range block.Transaction {
+			if existingTx.AssetHash == assetHash && (existingTx.License == pubKey || existingTx.Owner == pubKey) {
+				return true
+			}
+		}
 	}
 
-	// Check if the user is the owner or the designated licensee
-	if license.Owner != user && (license.Licensee != "" && license.Licensee != user) {
-		return false
-	}
-
-	// Check if the license is expired
-	if license.Expiry > 0 && time.Now().Unix() > license.Expiry {
-		fmt.Println("License expired for asset:", assetHash)
-		return false
-	}
-
-	return true
+	return false
 }
