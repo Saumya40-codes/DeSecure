@@ -82,7 +82,6 @@ func (bc *Blockchain) loadFromDB() {
 		bc.Blocks = append([]*Block{&block}, bc.Blocks...)
 
 		currentHash = block.PrevHash
-		fmt.Println("CHash ", currentHash)
 		if currentHash == "" {
 			break
 		}

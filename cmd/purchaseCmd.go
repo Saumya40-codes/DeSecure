@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/Saumya40-codes/Hopefully_a_blockchain_project/core"
@@ -33,13 +34,26 @@ var purchaseCmd = &cobra.Command{
 		db := storage.OpenDB("./data")
 		defer db.CloseDB()
 
-		assetData, err := db.Load(assetID)
-		if err != nil {
-			fmt.Println("❌ Asset not found on the blockchain:", err)
-			return
+		var originalTx core.LicenseTransaction
+		var assetData []byte
+
+		bc := core.NewBlockchain(db)
+
+		for _, blocks := range bc.Blocks {
+			for _, tx := range blocks.Transaction {
+				if tx.AssetHash == assetID {
+					assetData, err = json.Marshal(tx)
+					if err == nil {
+						db.Save(assetID, assetData)
+					} else {
+						db.CloseDB()
+						log.Fatal("Error occurred")
+						fmt.Println(err)
+					}
+				}
+			}
 		}
 
-		var originalTx core.LicenseTransaction
 		if err := json.Unmarshal(assetData, &originalTx); err != nil {
 			fmt.Println("❌ Error decoding asset data:", err)
 			return

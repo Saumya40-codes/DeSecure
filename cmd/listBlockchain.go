@@ -29,7 +29,7 @@ var blockchainCmd = &cobra.Command{
 				timeStr = t.Format("2006-01-02 15:04:05")
 			}
 
-			fmt.Printf("Block #%d\n", block.Index)
+			fmt.Printf("Block #%d\n", i)
 			fmt.Printf("  Time: %s\n", timeStr)
 			fmt.Printf("  Hash: %s\n", block.Hash)
 			fmt.Printf("  Prev: %s\n", block.PrevHash)

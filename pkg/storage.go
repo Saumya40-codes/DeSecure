@@ -11,7 +11,7 @@ type DB struct {
 }
 
 func OpenDB(path string) *DB {
-	opts := badger.DefaultOptions(path).WithLogger(nil)
+	opts := badger.DefaultOptions(path).WithLogger(nil).WithBypassLockGuard(true) // just for demo, else there should be a lock!
 	db, err := badger.Open(opts)
 	if err != nil {
 		log.Fatal("Failed to open BadgerDB:", err)

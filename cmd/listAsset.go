@@ -68,23 +68,23 @@ var listAssetsCmd = &cobra.Command{
 			var metadata map[string]string
 			if err := json.Unmarshal([]byte(tx.Metadata), &metadata); err == nil {
 				if title, ok := metadata["Title"]; ok {
-					infoColor.Printf("📝 Title: ")
+					infoColor.Printf(" Title: ")
 					fmt.Printf("%s\n", title)
 				}
 				if desc, ok := metadata["Description"]; ok {
-					infoColor.Printf("📄 Description: ")
+					infoColor.Printf(" Description: ")
 					fmt.Printf("%s\n", desc)
 				}
 				if category, ok := metadata["Category"]; ok {
-					infoColor.Printf("🏷️ Category: ")
+					infoColor.Printf(" Category: ")
 					categoryColor.Printf("%s\n", category)
 				}
 			}
 
-			infoColor.Printf("🔑 License Type: ")
+			infoColor.Printf(" License Type: ")
 			fmt.Printf("%s\n", tx.License)
 
-			infoColor.Printf("👤 Owner: ")
+			infoColor.Printf(" Owner: ")
 			fmt.Printf("%s\n", shortenKey(tx.Owner))
 
 			infoColor.Printf("🆔 Asset ID: ")
