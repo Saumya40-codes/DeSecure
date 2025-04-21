@@ -7,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/Saumya40-codes/Hopefully_a_blockchain_project/core"
-	storage "github.com/Saumya40-codes/Hopefully_a_blockchain_project/pkg"
+	"github.com/Saumya40-codes/DeSecure/core"
+	storage "github.com/Saumya40-codes/DeSecure/pkg"
 	"github.com/spf13/cobra"
 )
 

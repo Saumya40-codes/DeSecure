@@ -1,4 +1,4 @@
-module github.com/Saumya40-codes/Hopefully_a_blockchain_project
+module github.com/Saumya40-codes/DeSecure
 
 go 1.24.1
 
